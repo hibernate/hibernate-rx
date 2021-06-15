@@ -33,10 +33,13 @@ dependencies {
     testImplementation "io.vertx:vertx-pg-client:${vertxVersion}"
     testImplementation "io.vertx:vertx-mysql-client:${vertxVersion}"
     testImplementation "io.vertx:vertx-db2-client:${vertxVersion}"
+    testImplementation "io.vertx:vertx-mssql-client:${vertxVersion}"
 
     // JDBC driver to test with ORM and PostgreSQL
     testRuntimeOnly "org.postgresql:postgresql:42.2.22"
 
+    // JDBC driver for Testcontainers with MS SQL Server
+    testRuntimeOnly "com.microsoft.sqlserver:mssql-jdbc:9.2.1.jre8"
     // EHCache
     testRuntimeOnly "org.ehcache:ehcache:3.8.1"
     testRuntimeOnly ("org.hibernate:hibernate-jcache:${hibernateOrmVersion}") {
@@ -55,6 +58,7 @@ dependencies {
     testImplementation "org.testcontainers:mariadb:${testcontainersVersion}"
     testImplementation "org.testcontainers:db2:${testcontainersVersion}"
     testImplementation "org.testcontainers:cockroachdb:${testcontainersVersion}"
+    testImplementation "org.testcontainers:mssqlserver:${testcontainersVersion}"
 }
 
 // Print a summary of the results of the tests (number of failures, successes and skipped)
