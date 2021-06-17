@@ -64,6 +64,10 @@ public class CompletionStages {
 		return ZERO;
 	}
 
+	public static CompletionStage<Integer> zeroFuture(Object ignore) {
+		return zeroFuture();
+	}
+
 	public static CompletionStage<Boolean> trueFuture() {
 		return TRUE;
 	}
