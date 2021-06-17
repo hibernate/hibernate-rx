@@ -19,6 +19,7 @@ import org.hibernate.engine.spi.QueryParameters;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.engine.spi.SharedSessionContractImplementor;
 import org.hibernate.hql.internal.ast.HqlSqlWalker;
+import org.hibernate.hql.internal.ast.tree.AbstractRestrictableStatement;
 import org.hibernate.hql.internal.ast.tree.AssignmentSpecification;
 import org.hibernate.hql.internal.ast.tree.DeleteStatement;
 import org.hibernate.hql.internal.ast.tree.FromElement;
@@ -29,6 +30,8 @@ import org.hibernate.hql.spi.id.IdTableInfo;
 import org.hibernate.hql.spi.id.MultiTableBulkIdStrategy;
 import org.hibernate.hql.spi.id.global.GlobalTemporaryTableBulkIdStrategy;
 import org.hibernate.hql.spi.id.local.IdTableInfoImpl;
+import org.hibernate.internal.CoreLogging;
+import org.hibernate.internal.CoreMessageLogger;
 import org.hibernate.internal.util.collections.ArrayHelper;
 import org.hibernate.mapping.PersistentClass;
 import org.hibernate.mapping.Table;
@@ -39,6 +42,7 @@ import org.hibernate.reactive.bulk.StatementsWithParameters;
 import org.hibernate.reactive.pool.ReactiveConnection;
 import org.hibernate.reactive.pool.ReactiveConnectionPool;
 import org.hibernate.reactive.pool.impl.Parameters;
+import org.hibernate.reactive.session.ReactiveQueryExecutor;
 import org.hibernate.reactive.util.impl.CompletionStages;
 import org.hibernate.sql.Delete;
 import org.hibernate.sql.Update;
@@ -50,7 +54,10 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
+
+import static org.hibernate.reactive.util.impl.CompletionStages.total;
 
 /**
  * A reactive version of {@link AbstractMultiTableBulkIdStrategyImpl} used
@@ -64,6 +71,8 @@ import java.util.stream.Collectors;
 public class ReactiveBulkIdStrategy
 		extends AbstractMultiTableBulkIdStrategyImpl<IdTableInfoImpl, AbstractMultiTableBulkIdStrategyImpl.PreparationContext>
 		implements MultiTableBulkIdStrategy {
+
+	private static final CoreMessageLogger LOG = CoreLogging.messageLogger( ReactiveBulkIdStrategy.class );
 
 	private static final ParameterSpecification[] NO_PARAMS = new ParameterSpecification[0];
 
@@ -133,46 +142,145 @@ public class ReactiveBulkIdStrategy
 
 	@Override
 	public UpdateHandler buildUpdateHandler(SessionFactoryImplementor factory, HqlSqlWalker walker) {
-		return new TableBasedUpdateHandlerImpl( factory, walker );
+		return new TableBasedUpdateHandlerImpl( factory, walker, targetedPersister( walker ) );
 	}
 
 	@Override
 	public DeleteHandler buildDeleteHandler(SessionFactoryImplementor factory, HqlSqlWalker walker) {
-		return new TableBasedDeleteHandlerImpl( factory, walker );
+		return new TableBasedDeleteHandlerImpl( factory, walker, targetedPersister( walker ) );
 	}
 
-	private class TableBasedUpdateHandlerImpl extends AbstractTableBasedBulkIdHandler
-			implements MultiTableBulkIdStrategy.UpdateHandler, StatementsWithParameters {
+	private Queryable targetedPersister(HqlSqlWalker walker) {
+		AbstractRestrictableStatement restrictableStatement = (AbstractRestrictableStatement) walker.getAST();
+		FromElement fromElement = restrictableStatement.getFromClause().getFromElement();
+		return fromElement.getQueryable();
+	}
+
+	private static class CreateTempTablesStatementsExecutor {
+		private final ReactiveQueryExecutor session;
+		private final String[] statements;
+		private int currentIndex;
+
+		private CreateTempTablesStatementsExecutor(ReactiveQueryExecutor session, String[] statements) {
+			this.session = session;
+			this.statements = statements;
+		}
+
+		public CompletionStage<Integer> execute(int i) {
+			currentIndex = i;
+			return session.getReactiveConnection()
+					.executeStatement( statements[i] )
+					.handle( this::ignoreException );
+		}
+
+		// ignore errors creating tables, since a create
+		// table fails whenever the table already exists
+		// or a drop table might fail if the table doesn't exist
+		private Integer ignoreException(Void unused, Throwable throwable) {
+			LOG.debugf( throwable, "Statement '%s' failed. Ignoring the exception", statements[currentIndex] );
+			return 0;
+		}
+	}
+
+	/**
+	 * Handle the statements for the creation of temporary tables. They sometimes need to run
+	 * as query instead of preparedQuery (it depends on the database).
+	 */
+	private abstract class CreateTempTablesHandler extends AbstractTableBasedBulkIdHandler
+			implements StatementsWithParameters {
+
+		private final String[] createTempTablesStatements;
+		private final Queryable targetedPersister;
+
+		public CreateTempTablesHandler(SessionFactoryImplementor sessionFactory, HqlSqlWalker walker, Queryable targetedPersister) {
+			super( sessionFactory, walker );
+			this.targetedPersister = targetedPersister;
+
+			List<String> createTempStatements = new ArrayList<>();
+			List<ParameterSpecification[]> createTempParameterSpecifications = new ArrayList<>();
+			createTempTable( createTempStatements, createTempParameterSpecifications, getIdTableInfo( targetedPersister ) );
+
+			this.createTempTablesStatements = ArrayHelper.toStringArray( createTempStatements );
+		}
+
+		@Override
+		public Queryable getTargetedQueryable() {
+			return targetedPersister;
+		}
+
+		@Override
+		public CompletionStage<Integer> execute(ReactiveQueryExecutor session, QueryParameters queryParameters) {
+			return executeCreateTempTablesStatements( session )
+					.thenCompose( zero -> StatementsWithParameters.super.execute( session, queryParameters ) );
+		}
+
+		private CompletionStage<Integer> executeCreateTempTablesStatements(ReactiveQueryExecutor session) {
+			CreateTempTablesStatementsExecutor createTempTables = new CreateTempTablesStatementsExecutor( session, createTempTablesStatements );
+			return total( 0, createTempTablesStatements.length, createTempTables::execute );
+		}
+
+		@Override
+		public boolean isTransactionalStatement(String statement) {
+			return !db2 || !isSchemaDefinitionStatement( statement );
+		}
+
+		@Override
+		protected String generateIdInsertSelect(String tableAlias, IdTableInfo idTableInfo, ProcessedWhereClause whereClause) {
+			String sql = super.generateIdInsertSelect( tableAlias, idTableInfo, whereClause );
+			return parameters.process( sql );
+		}
+
+		@Override
+		protected String generateIdSubselect(Queryable persister, AbstractCollectionPersister cPersister, IdTableInfo idTableInfo) {
+			String sql = super.generateIdSubselect( persister, cPersister, idTableInfo );
+			return parameters.process( sql );
+		}
+
+		@Override
+		protected String generateIdSubselect(Queryable persister, IdTableInfo idTableInfo) {
+			String sql = super.generateIdSubselect( persister, idTableInfo );
+			return parameters.process( sql );
+		}
+
+		@Override
+		protected void prepareForUse(Queryable persister, SharedSessionContractImplementor session) {
+			throw new UnsupportedOperationException();
+		}
+
+		@Override
+		protected void releaseFromUse(Queryable persister, SharedSessionContractImplementor session) {
+			throw new UnsupportedOperationException();
+		}
+	}
+
+	private class TableBasedUpdateHandlerImpl extends CreateTempTablesHandler
+			implements MultiTableBulkIdStrategy.UpdateHandler {
 
 		private final String[] statements;
 		private final ParameterSpecification[][] parameterSpecifications;
-		private final Queryable targetedPersister;
 
 		@Override
 		public ParameterSpecification[][] getParameterSpecifications() {
 			return parameterSpecifications;
 		}
 
-		public TableBasedUpdateHandlerImpl(SessionFactoryImplementor factory, HqlSqlWalker walker) {
-			super( factory, walker );
-
-			ArrayList<String> statements = new ArrayList<>();
-			ArrayList<ParameterSpecification[]> parameterSpecifications = new ArrayList<>();
+		public TableBasedUpdateHandlerImpl(SessionFactoryImplementor factory, HqlSqlWalker walker, Queryable targetedPersister) {
+			super( factory, walker,targetedPersister );
 
 			UpdateStatement updateStatement = (UpdateStatement) walker.getAST();
 			FromElement fromElement = updateStatement.getFromClause().getFromElement();
 			String bulkTargetAlias = fromElement.getTableAlias();
-			targetedPersister = fromElement.getQueryable();
 			IdTableInfoImpl tableInfo = getIdTableInfo( targetedPersister );
 			List<AssignmentSpecification> assignments = walker.getAssignmentSpecifications();
 
 			String[] tableNames = targetedPersister.getConstraintOrderedTableNameClosure();
 			String[][] columnNames = targetedPersister.getContraintOrderedTableKeyColumnClosure();
 
-			createTempTable( statements, parameterSpecifications, tableInfo );
-
 			ProcessedWhereClause processedWhereClause = processWhereClause( updateStatement.getWhereClause() );
 			String idInsertSelect = generateIdInsertSelect( bulkTargetAlias, tableInfo, processedWhereClause );
+
+			List<String> statements = new ArrayList<>();
+			List<ParameterSpecification[]> parameterSpecifications = new ArrayList<>();
 			statements.add( idInsertSelect );
 //			if ( useSessionIdColumn() ) {
 //				specifications.add( SESSION_ID );
@@ -215,53 +323,13 @@ public class ReactiveBulkIdStrategy
 		}
 
 		@Override
-		protected String generateIdInsertSelect(
-				String tableAlias, IdTableInfo idTableInfo, ProcessedWhereClause whereClause) {
-			String sql = super.generateIdInsertSelect( tableAlias, idTableInfo, whereClause );
-			return parameters.process( sql );
-		}
-
-		@Override
-		protected String generateIdSubselect(
-				Queryable persister, AbstractCollectionPersister cPersister, IdTableInfo idTableInfo) {
-			String sql = super.generateIdSubselect( persister, cPersister, idTableInfo );
-			return parameters.process( sql );
-		}
-
-		@Override
-		protected String generateIdSubselect(Queryable persister, IdTableInfo idTableInfo) {
-			String sql = super.generateIdSubselect( persister, idTableInfo );
-			return parameters.process( sql );
-		}
-
-		@Override
-		public Queryable getTargetedQueryable() {
-			return targetedPersister;
-		}
-
-		@Override
-		public String[] getSqlStatements() {
-			return statements;
-		}
-
-		@Override
-		public boolean isTransactionalStatement(String statement) {
-			return !db2 || !isSchemaDefinitionStatement(statement);
-		}
-
-		@Override
 		public int execute(SharedSessionContractImplementor session, QueryParameters queryParameters) {
 			throw new UnsupportedOperationException();
 		}
 
 		@Override
-		protected void prepareForUse(Queryable persister, SharedSessionContractImplementor session) {
-			throw new UnsupportedOperationException();
-		}
-
-		@Override
-		protected void releaseFromUse(Queryable persister, SharedSessionContractImplementor session) {
-			throw new UnsupportedOperationException();
+		public String[] getSqlStatements() {
+			return statements;
 		}
 
 //		@Override
@@ -278,32 +346,27 @@ public class ReactiveBulkIdStrategy
 //		}
 	}
 
-	private class TableBasedDeleteHandlerImpl extends AbstractTableBasedBulkIdHandler
-			implements MultiTableBulkIdStrategy.DeleteHandler, StatementsWithParameters {
+	private class TableBasedDeleteHandlerImpl extends CreateTempTablesHandler
+			implements MultiTableBulkIdStrategy.DeleteHandler {
 
-		private final Queryable targetedPersister;
-
-		private final ParameterSpecification[][] parameterSpecifications;
 		private final String[] statements;
+		private final ParameterSpecification[][] parameterSpecifications;
 
 		@Override
 		public ParameterSpecification[][] getParameterSpecifications() {
 			return parameterSpecifications;
 		}
 
-		public TableBasedDeleteHandlerImpl(SessionFactoryImplementor factory, HqlSqlWalker walker) {
-			super( factory, walker );
+		public TableBasedDeleteHandlerImpl(SessionFactoryImplementor factory, HqlSqlWalker walker, Queryable targetedPersister) {
+			super( factory, walker, targetedPersister );
 
-			ArrayList<String> statements = new ArrayList<>();
-			ArrayList<ParameterSpecification[]> parameterSpecifications = new ArrayList<>();
+			List<String> statements = new ArrayList<>();
+			List<ParameterSpecification[]> parameterSpecifications = new ArrayList<>();
 
 			DeleteStatement deleteStatement = (DeleteStatement) walker.getAST();
 			FromElement fromElement = deleteStatement.getFromClause().getFromElement();
 			String bulkTargetAlias = fromElement.getTableAlias();
-			targetedPersister = fromElement.getQueryable();
 			IdTableInfoImpl tableInfo = getIdTableInfo( targetedPersister );
-
-			createTempTable( statements, parameterSpecifications, tableInfo );
 
 			ProcessedWhereClause processedWhereClause = processWhereClause( deleteStatement.getWhereClause() );
 			String idInsertSelect = generateIdInsertSelect( bulkTargetAlias, tableInfo, processedWhereClause );
@@ -358,36 +421,8 @@ public class ReactiveBulkIdStrategy
 		}
 
 		@Override
-		protected String generateIdInsertSelect(String tableAlias, IdTableInfo idTableInfo, ProcessedWhereClause whereClause) {
-			String sql = super.generateIdInsertSelect( tableAlias, idTableInfo, whereClause );
-			return parameters.process( sql );
-		}
-
-		@Override
-		protected String generateIdSubselect(Queryable persister, IdTableInfo idTableInfo) {
-			String sql = super.generateIdSubselect( persister, idTableInfo );
-			return parameters.process( sql );
-		}
-
-		@Override
-		protected String generateIdSubselect(Queryable persister, AbstractCollectionPersister cPersister, IdTableInfo idTableInfo) {
-			String sql = super.generateIdSubselect( persister, cPersister, idTableInfo );
-			return parameters.process( sql );
-		}
-
-		@Override
-		public Queryable getTargetedQueryable() {
-			return targetedPersister;
-		}
-
-		@Override
 		public String[] getSqlStatements() {
 			return statements;
-		}
-
-		@Override
-		public boolean isTransactionalStatement(String statement) {
-			return !db2 || !isSchemaDefinitionStatement( statement );
 		}
 
 		@Override
@@ -416,8 +451,8 @@ public class ReactiveBulkIdStrategy
 //		}
 	}
 
-	private void createTempTable(ArrayList<String> statements,
-								 ArrayList<ParameterSpecification[]> parameterSpecifications,
+	private void createTempTable(List<String> statements,
+								 List<ParameterSpecification[]> parameterSpecifications,
 								 IdTableInfoImpl tableInfo) {
 		if (db2) {
 			if ( createdGlobalTemporaryTables.add( tableInfo.getQualifiedIdTableName() ) ) {
@@ -434,8 +469,8 @@ public class ReactiveBulkIdStrategy
 		}
 	}
 
-	private void dropTempTable(ArrayList<String> statements,
-							   ArrayList<ParameterSpecification[]> parameterSpecifications,
+	private void dropTempTable(List<String> statements,
+							   List<ParameterSpecification[]> parameterSpecifications,
 							   IdTableInfoImpl tableInfo) {
 //		if ( useSessionIdColumn() ) {
 //			Delete drop = new Delete()

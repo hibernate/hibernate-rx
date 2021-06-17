@@ -109,6 +109,10 @@ public class BatchingConnection implements ReactiveConnection {
         return delegate.execute(sql);
     }
 
+    public CompletionStage<Void> executeStatement(String sql) {
+        return delegate.executeStatement(sql);
+    }
+
     public CompletionStage<Void> executeOutsideTransaction(String sql) {
         return delegate.executeOutsideTransaction(sql);
     }

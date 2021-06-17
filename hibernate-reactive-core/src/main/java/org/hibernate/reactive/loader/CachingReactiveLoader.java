@@ -182,11 +182,11 @@ public interface CachingReactiveLoader<T> extends ReactiveLoader {
 	List<T> getResultList(List<?> results, ResultTransformer resultTransformer) throws QueryException;
 
 	@Override
-	default Object[] toParameterArray(QueryParameters queryParameters, SharedSessionContractImplementor session) {
+	default Object[] toParameterArray(QueryParameters queryParameters, SharedSessionContractImplementor session, LimitHandler limitHandler) {
 		return PreparedStatementAdaptor.bind( adaptor -> bindToPreparedStatement(
 				adaptor,
 				queryParameters,
-				limitHandler( queryParameters.getRowSelection(), session ),
+				limitHandler,
 				session
 		) );
 	}

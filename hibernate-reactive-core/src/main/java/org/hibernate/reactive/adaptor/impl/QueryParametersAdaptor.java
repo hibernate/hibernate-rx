@@ -5,6 +5,7 @@
  */
 package org.hibernate.reactive.adaptor.impl;
 
+import org.hibernate.dialect.pagination.LimitHandler;
 import org.hibernate.engine.spi.QueryParameters;
 import org.hibernate.engine.spi.SharedSessionContractImplementor;
 import org.hibernate.param.ParameterSpecification;
@@ -18,7 +19,8 @@ public final class QueryParametersAdaptor {
 	}
 
 	public static Object[] arguments(QueryParameters queryParameters,
-									 SharedSessionContractImplementor session) {
+									 SharedSessionContractImplementor session,
+									 LimitHandler limitHandler) {
 		return PreparedStatementAdaptor.bind( adaptor -> {
 			Type[] types = queryParameters.getFilteredPositionalParameterTypes();
 			Object[] values = queryParameters.getFilteredPositionalParameterValues();
@@ -29,6 +31,8 @@ public final class QueryParametersAdaptor {
 				type.nullSafeSet( adaptor, value, pos, session );
 				pos += type.getColumnSpan( session.getFactory() );
 			}
+
+			pos += limitHandler.bindLimitParametersAtEndOfQuery( queryParameters.getRowSelection(), adaptor, pos );
 		} );
 	}
 

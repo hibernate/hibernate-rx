@@ -25,10 +25,7 @@ import org.hibernate.Session;
 import org.hibernate.StaleObjectStateException;
 import org.hibernate.bytecode.enhance.spi.interceptor.LazyAttributeDescriptor;
 import org.hibernate.collection.spi.PersistentCollection;
-import org.hibernate.dialect.CockroachDB192Dialect;
-import org.hibernate.dialect.DB2Dialect;
 import org.hibernate.dialect.Dialect;
-import org.hibernate.dialect.PostgreSQL81Dialect;
 import org.hibernate.engine.OptimisticLockStyle;
 import org.hibernate.engine.internal.Versioning;
 import org.hibernate.engine.spi.EntityEntry;
@@ -77,6 +74,7 @@ import static org.hibernate.persister.entity.AbstractEntityPersister.isValueGene
 import static org.hibernate.pretty.MessageHelper.infoString;
 import static org.hibernate.reactive.adaptor.impl.PreparedStatementAdaptor.bind;
 import static org.hibernate.reactive.id.impl.IdentifierGeneration.castToIdentifierType;
+import static org.hibernate.reactive.persister.entity.impl.InsertAndSelectProcessor.process;
 import static org.hibernate.reactive.util.impl.CompletionStages.completedFuture;
 import static org.hibernate.reactive.util.impl.CompletionStages.logSqlException;
 import static org.hibernate.reactive.util.impl.CompletionStages.loop;
@@ -370,7 +368,10 @@ public interface ReactiveAbstractEntityPersister extends ReactiveEntityPersister
 		// Ignoring it for now because it's always false and we have ways to get the id without
 		// the extra round trip for all supported databases
 //		if ( getFactory().getSessionFactoryOptions().isGetGeneratedKeysEnabled() ) {
-			generatedIdStage = connection.insertAndSelectIdentifier( checkSql( sql ), params );
+			generatedIdStage = connection.insertAndSelectIdentifier(
+					process( sql, getFactory().getJdbcServices().getDialect(), delegate().getIdentifierColumnNames()[0] ),
+					params
+			);
 //		}
 //		else {
 //			//use an extra round trip to fetch the id
@@ -385,22 +386,6 @@ public interface ReactiveAbstractEntityPersister extends ReactiveEntityPersister
 					}
 					return castToIdentifierType( generatedId, this );
 				} );
-	}
-
-	/**
-	 * Queries used to insert a new element and retrieve the id in one go require
-	 * some changes
-	 */
-	default String checkSql(String sql) {
-		Dialect dialect = getFactory().getJdbcServices().getDialect();
-		//TODO: wooooo this is awful ... I believe the problem is fixed in Hibernate 6
-		if ( dialect instanceof PostgreSQL81Dialect || dialect instanceof CockroachDB192Dialect ) {
-			return sql + " returning " + delegate().getIdentifierColumnNames()[0];
-		}
-		if ( dialect instanceof DB2Dialect ) {
-			return "select " + delegate().getIdentifierColumnNames()[0] + " from NEW TABLE (" + sql + ")";
-		}
-		return sql;
 	}
 
 	default CompletionStage<Void> deleteReactive(
