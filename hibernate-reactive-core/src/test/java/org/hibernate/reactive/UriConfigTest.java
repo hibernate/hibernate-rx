@@ -13,6 +13,7 @@ import org.hibernate.dialect.Dialect;
 import org.hibernate.dialect.MariaDB103Dialect;
 import org.hibernate.dialect.MySQL8Dialect;
 import org.hibernate.dialect.PostgreSQL10Dialect;
+import org.hibernate.dialect.SQLServer2012Dialect;
 import org.hibernate.reactive.containers.DatabaseConfiguration;
 import org.hibernate.reactive.provider.Settings;
 
@@ -32,6 +33,7 @@ public class UriConfigTest extends BaseReactiveTest {
             case COCKROACHDB: dialect = CockroachDB201Dialect.class; break;
             case MYSQL: dialect = MySQL8Dialect.class; break;
             case MARIA: dialect = MariaDB103Dialect.class; break;
+            case SQLSERVER: dialect = SQLServer2012Dialect.class; break;
             case DB2: dialect = DB297Dialect.class; break;
             default: throw new IllegalArgumentException("Database not recognized: " + dbType().name());
         }
@@ -55,6 +57,7 @@ public class UriConfigTest extends BaseReactiveTest {
         switch ( dbType() ) {
             case POSTGRESQL:
             case COCKROACHDB:
+            case SQLSERVER:
                 return "select cast(current_timestamp as varchar)";
             case MARIA:
             case MYSQL:

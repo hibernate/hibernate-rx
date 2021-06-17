@@ -22,7 +22,8 @@ public class DatabaseConfiguration {
 		MYSQL( MySQLDatabase.INSTANCE, 3306, false ),
 		MARIA( MariaDatabase.INSTANCE, 3306, false, "mariadb" ),
 		POSTGRESQL( PostgreSQLDatabase.INSTANCE, 5432, true, "POSTGRES", "PG" ),
-		COCKROACHDB( CockroachDBDatabase.INSTANCE, 26257, true, "COCKROACH" );
+		COCKROACHDB( CockroachDBDatabase.INSTANCE, 26257, true, "COCKROACH" ),
+		SQLSERVER( MSSQLServerDatabase.INSTANCE, 1433, false, "MSSQL", "MSSQLSERVER" );
 
 		private final TestableDatabase configuration;
 		private final int defaultPort;

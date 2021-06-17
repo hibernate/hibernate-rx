@@ -5,21 +5,30 @@
  */
 package org.hibernate.reactive.types;
 
-import io.vertx.core.json.JsonObject;
-import io.vertx.ext.unit.TestContext;
+import java.util.Objects;
+import java.util.function.Consumer;
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.GeneratedValue;
+import javax.persistence.Id;
+import javax.persistence.Lob;
+import javax.persistence.Table;
+import javax.persistence.Version;
+
 import org.hibernate.annotations.Type;
 import org.hibernate.cfg.Configuration;
 import org.hibernate.reactive.BaseReactiveTest;
 import org.hibernate.reactive.testing.DatabaseSelectionRule;
+
 import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
 
-import javax.persistence.*;
-import java.util.Objects;
-import java.util.function.Consumer;
+import io.vertx.core.json.JsonObject;
+import io.vertx.ext.unit.TestContext;
 
 import static org.hibernate.reactive.containers.DatabaseConfiguration.DBType.DB2;
+import static org.hibernate.reactive.containers.DatabaseConfiguration.DBType.SQLSERVER;
 
 /**
  * Test types that we expect to work only on selected DBs.
@@ -27,7 +36,7 @@ import static org.hibernate.reactive.containers.DatabaseConfiguration.DBType.DB2
 public class BasicTypesForSelectedDBTest extends BaseReactiveTest {
 
 	@Rule
-	public DatabaseSelectionRule selectionRule = DatabaseSelectionRule.skipTestsFor( DB2 );
+	public DatabaseSelectionRule selectionRule = DatabaseSelectionRule.skipTestsFor( DB2, SQLSERVER );
 
 	@Override
 	protected Configuration constructConfiguration() {

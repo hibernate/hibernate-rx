@@ -13,9 +13,12 @@ import javax.persistence.Entity;
 import javax.persistence.Id;
 
 import org.hibernate.cfg.Configuration;
+import org.hibernate.reactive.containers.DatabaseConfiguration;
 import org.hibernate.reactive.pool.ReactiveConnection;
+import org.hibernate.reactive.testing.DatabaseSelectionRule;
 
 import org.junit.After;
+import org.junit.Rule;
 import org.junit.Test;
 
 import io.vertx.ext.unit.TestContext;
@@ -23,6 +26,10 @@ import io.vertx.ext.unit.TestContext;
 import static org.hibernate.reactive.containers.DatabaseConfiguration.dbType;
 
 public class BatchQueryOnConnectionTest extends BaseReactiveTest {
+
+	@Rule // Not supported at the moment
+	public DatabaseSelectionRule skip = DatabaseSelectionRule.skipTestsFor( DatabaseConfiguration.DBType.SQLSERVER );
+
 	private static final int BATCH_SIZE = 20;
 
 	@After
