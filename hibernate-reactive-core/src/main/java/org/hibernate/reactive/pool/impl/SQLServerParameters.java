@@ -7,7 +7,7 @@ package org.hibernate.reactive.pool.impl;
 
 public class SQLServerParameters extends Parameters {
 
-    static final SQLServerParameters INSTANCE = new SQLServerParameters();
+    public static final SQLServerParameters INSTANCE = new SQLServerParameters();
 
     private SQLServerParameters() {
     }

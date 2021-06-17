@@ -7,7 +7,7 @@ package org.hibernate.reactive.pool.impl;
 
 public class PostgresParameters extends Parameters {
 
-    static final PostgresParameters INSTANCE = new PostgresParameters();
+    public static final PostgresParameters INSTANCE = new PostgresParameters();
 
     private PostgresParameters() {
     }

@@ -6,6 +6,7 @@
 package org.hibernate.reactive;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletionStage;
@@ -13,12 +14,11 @@ import javax.persistence.Entity;
 import javax.persistence.Id;
 
 import org.hibernate.cfg.Configuration;
-import org.hibernate.reactive.containers.DatabaseConfiguration;
 import org.hibernate.reactive.pool.ReactiveConnection;
-import org.hibernate.reactive.testing.DatabaseSelectionRule;
+import org.hibernate.reactive.pool.impl.PostgresParameters;
+import org.hibernate.reactive.pool.impl.SQLServerParameters;
 
 import org.junit.After;
-import org.junit.Rule;
 import org.junit.Test;
 
 import io.vertx.ext.unit.TestContext;
@@ -26,9 +26,6 @@ import io.vertx.ext.unit.TestContext;
 import static org.hibernate.reactive.containers.DatabaseConfiguration.dbType;
 
 public class BatchQueryOnConnectionTest extends BaseReactiveTest {
-
-	@Rule // Not supported at the moment
-	public DatabaseSelectionRule skip = DatabaseSelectionRule.skipTestsFor( DatabaseConfiguration.DBType.SQLSERVER );
 
 	private static final int BATCH_SIZE = 20;
 
@@ -67,10 +64,7 @@ public class BatchQueryOnConnectionTest extends BaseReactiveTest {
 	}
 
 	public List<List<Object[]>> doBatchInserts(TestContext context, int nEntities, int nEntitiesMultiple) {
-		final String insertSql = "insert into DataPoint (description, x, y, id) values ";
-		final String sql = dbType().requiresDollarSyntax()
-				? insertSql + "($1, $2, $3, $4)"
-				: insertSql + "(?, ?, ?, ?)";
+		final String insertSql = process( "insert into DataPoint (description, x, y, id) values (?, ?, ?, ?)" );
 
 		List<List<Object[]>> paramsBatches = new ArrayList<>();
 		List<Object[]> paramsBatch = new ArrayList<>( BATCH_SIZE );
@@ -79,8 +73,8 @@ public class BatchQueryOnConnectionTest extends BaseReactiveTest {
 
 			DataPoint dp = new DataPoint(i);
 			dp.description = "#" + i;
-			dp.setX(new BigDecimal(i * 0.1d).setScale(19, BigDecimal.ROUND_DOWN));
-			dp.setY(new BigDecimal(dp.getX().doubleValue()*Math.PI).setScale(19, BigDecimal.ROUND_DOWN));
+			dp.setX( new BigDecimal( i * 0.1d ).setScale( 19, RoundingMode.DOWN ) );
+			dp.setY( new BigDecimal( dp.getX().doubleValue() * Math.PI ).setScale( 19, RoundingMode.DOWN ) );
 			//uncomment to expose bug in DB2 client:
 //			dp.setY(new BigDecimal(Math.cos(dp.getX().doubleValue())).setScale(19, BigDecimal.ROUND_DOWN));
 
@@ -98,7 +92,7 @@ public class BatchQueryOnConnectionTest extends BaseReactiveTest {
 
 		CompletionStage<ReactiveConnection> stage = connection();
 		for ( List<Object[]> batch : paramsBatches ) {
-			stage = stage.thenCompose( connection -> connection.update( sql, batch )
+			stage = stage.thenCompose( connection -> connection.update( insertSql, batch )
 					.thenApply( updateCounts -> {
 						context.assertEquals( batch.size(), updateCounts.length );
 						for ( int updateCount : updateCounts ) {
@@ -121,6 +115,18 @@ public class BatchQueryOnConnectionTest extends BaseReactiveTest {
 		);
 
 		return paramsBatches;
+	}
+
+	private String process(String sql) {
+		switch ( dbType() ) {
+			case POSTGRESQL:
+			case COCKROACHDB:
+				return PostgresParameters.INSTANCE.process( sql );
+			case SQLSERVER:
+				return SQLServerParameters.INSTANCE.process( sql );
+			default:
+				return sql;
+		}
 	}
 
 	protected Configuration constructConfiguration() {
