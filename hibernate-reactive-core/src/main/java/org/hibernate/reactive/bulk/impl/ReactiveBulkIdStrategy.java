@@ -264,6 +264,13 @@ public class ReactiveBulkIdStrategy
 		}
 
 		public CompletionStage<Integer> dropTempTable(Integer total) {
+//		if ( useSessionIdColumn() ) {
+//			Delete drop = new Delete()
+//					.setTableName( tableInfo.getQualifiedIdTableName() )
+//					.setWhere( SESSION_ID_COLUMN_NAME + "=?" );
+//			statements.add( drop.toStatementString() );
+//			parameterSpecifications.add( new ParameterSpecification[] { SESSION_ID } );
+//		}
 			return session.getReactiveConnection()
 					.execute( deleteStatement )
 					.handle( this::ignoreException );
