@@ -40,7 +40,7 @@ public interface ReactiveConnection {
 	/**
 	 * Run sql as statement (instead of preparedStatement)
 	 */
-	CompletionStage<Void> executeStatement(String sql);
+	CompletionStage<Void> executeUnprepared(String sql);
 
 	CompletionStage<Integer> update(String sql);
 	CompletionStage<Integer> update(String sql, Object[] paramValues);

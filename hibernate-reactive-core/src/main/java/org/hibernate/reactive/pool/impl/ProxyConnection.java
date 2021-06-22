@@ -71,8 +71,8 @@ final class ProxyConnection implements ReactiveConnection {
 	}
 
 	@Override
-	public CompletionStage<Void> executeStatement(String sql) {
-		return withConnection( conn -> conn.executeStatement( sql ) );
+	public CompletionStage<Void> executeUnprepared(String sql) {
+		return withConnection( conn -> conn.executeUnprepared( sql ) );
 	}
 
 	@Override

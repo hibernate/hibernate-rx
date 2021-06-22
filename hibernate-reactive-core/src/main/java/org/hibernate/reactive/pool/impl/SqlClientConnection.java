@@ -117,7 +117,7 @@ public class SqlClientConnection implements ReactiveConnection {
 	}
 
 	@Override
-	public CompletionStage<Void> executeStatement(String sql) {
+	public CompletionStage<Void> executeUnprepared(String sql) {
 		feedback( sql );
 		return client().query( sql ).execute().toCompletionStage()
 				.thenCompose( CompletionStages::voidFuture );

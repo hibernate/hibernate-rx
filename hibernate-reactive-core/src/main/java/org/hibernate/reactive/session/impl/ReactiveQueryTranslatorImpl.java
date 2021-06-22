@@ -209,11 +209,6 @@ public class ReactiveQueryTranslatorImpl<T> extends QueryTranslatorImpl {
 					Arrays.fill( result, parameterSpecifications );
 					return result;
 				}
-
-				@Override
-				public boolean isSchemaDefinitionStatement(String statement) {
-					return false;
-				}
 			};
 		}
 	}

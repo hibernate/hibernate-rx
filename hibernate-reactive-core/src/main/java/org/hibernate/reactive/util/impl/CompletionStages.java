@@ -109,6 +109,13 @@ public class CompletionStages {
 		return result;
 	}
 
+	/**
+	 * For CompletionStage#handle when we don't care about errors
+	 */
+	public static <U> U ignoreErrors(Void unused, Throwable throwable) {
+		return null;
+	}
+
 	public static void logSqlException(Throwable t, Supplier<String> message, String sql) {
 		if ( t != null ) {
 			log.error( "failed to execute statement [" + sql + "]" );

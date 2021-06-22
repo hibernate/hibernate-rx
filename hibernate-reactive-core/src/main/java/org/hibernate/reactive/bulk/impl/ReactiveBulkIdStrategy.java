@@ -5,6 +5,14 @@
  */
 package org.hibernate.reactive.bulk.impl;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CompletionStage;
+import java.util.stream.Collectors;
+
 import org.hibernate.boot.registry.StandardServiceRegistry;
 import org.hibernate.boot.spi.MetadataBuildingOptions;
 import org.hibernate.boot.spi.MetadataImplementor;
@@ -49,15 +57,8 @@ import org.hibernate.sql.Update;
 import org.hibernate.type.CollectionType;
 import org.hibernate.type.Type;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.CompletionStage;
-import java.util.stream.Collectors;
-
-import static org.hibernate.reactive.util.impl.CompletionStages.total;
+import static org.hibernate.reactive.util.impl.CompletionStages.loop;
+import static org.hibernate.reactive.util.impl.CompletionStages.zeroFuture;
 
 /**
  * A reactive version of {@link AbstractMultiTableBulkIdStrategyImpl} used
@@ -78,7 +79,7 @@ public class ReactiveBulkIdStrategy
 
 	private final boolean db2;
 	private final Set<String> createdGlobalTemporaryTables = new HashSet<>();
-	private final List<String> dropTableStatements = new ArrayList<>();
+	private final List<String> dropGlobalTemporaryTables = new ArrayList<>();
 	private final Parameters parameters;
 
 	private StandardServiceRegistry serviceRegistry;
@@ -121,7 +122,7 @@ public class ReactiveBulkIdStrategy
 
 	@Override
 	public void release(JdbcServices jdbcServices, JdbcConnectionAccess connectionAccess) {
-		if ( serviceRegistry!=null && !dropTableStatements.isEmpty() ) {
+		if ( serviceRegistry != null && !dropGlobalTemporaryTables.isEmpty() ) {
 			boolean dropIdTables = serviceRegistry.getService( ConfigurationService.class )
 					.getSetting(
 							GlobalTemporaryTableBulkIdStrategy.DROP_ID_TABLES,
@@ -129,12 +130,11 @@ public class ReactiveBulkIdStrategy
 							false
 					);
 			if ( dropIdTables ) {
-				ReactiveConnection connection =
-						serviceRegistry.getService( ReactiveConnectionPool.class )
-								.getProxyConnection();
-				CompletionStages.loop( dropTableStatements, connection::execute )
+				ReactiveConnection connection = serviceRegistry.getService( ReactiveConnectionPool.class )
+						.getProxyConnection();
+				loop( dropGlobalTemporaryTables, connection::execute )
 						.whenComplete( (v, e) -> connection.close() )
-						.handle( (v, e) -> null ) //ignore errors
+						.handle( CompletionStages::ignoreErrors )
 						.toCompletableFuture().join();
 			}
 		}
@@ -156,51 +156,137 @@ public class ReactiveBulkIdStrategy
 		return fromElement.getQueryable();
 	}
 
-	private static class CreateTempTablesStatementsExecutor {
-		private final ReactiveQueryExecutor session;
-		private final String[] statements;
-		private int currentIndex;
+	/**
+	 * Different databases creates temporary tables
+	 * in different ways and they have different requirements
+	 * about how to run those queries.
+	 */
+	private interface TempTableStatementsExecutor {
+		CompletionStage<Integer> createTempTable();
 
-		private CreateTempTablesStatementsExecutor(ReactiveQueryExecutor session, String[] statements) {
-			this.session = session;
-			this.statements = statements;
-		}
+		CompletionStage<Integer> dropTempTable(Integer currentTotal);
 
-		public CompletionStage<Integer> execute(int i) {
-			currentIndex = i;
-			return session.getReactiveConnection()
-					.executeStatement( statements[i] )
-					.handle( this::ignoreException );
-		}
+		/**
+		 * Mainly for keeping track which statement has failed
+		 */
+		String getFailedStatement();
 
-		// ignore errors creating tables, since a create
-		// table fails whenever the table already exists
-		// or a drop table might fail if the table doesn't exist
-		private Integer ignoreException(Void unused, Throwable throwable) {
-			LOG.debugf( throwable, "Statement '%s' failed. Ignoring the exception", statements[currentIndex] );
+		/**
+		 * Ignore errors, since a create
+		 * table fails whenever the table already exists
+		 * or a drop table might fail if the table doesn't exist
+		 */
+		default Integer ignoreException(Void unused, Throwable throwable) {
+			if ( throwable != null ) {
+				LOG.debugf( "Statement '%s' failed. Ignoring the exception: %s", getFailedStatement(), throwable.getMessage() );
+			}
 			return 0;
 		}
 	}
 
 	/**
-	 * Handle the statements for the creation of temporary tables. They sometimes need to run
+	 * Execute the queries for the creation and drop of local temporary tables.
+	 * For some databases (MSSQL for example) the query for the creation of the table must run in
+	 * a non prepared query.
+	 */
+	private static class LocalTempTableStatementsExecutor implements TempTableStatementsExecutor {
+		private final String createStatement;
+		private final String dropStatement;
+		private final ReactiveQueryExecutor session;
+		private String failedStatement;
+
+		private LocalTempTableStatementsExecutor(IdTableInfoImpl tableInfo, ReactiveQueryExecutor session) {
+			this.session = session;
+			createStatement = tableInfo.getIdTableCreationStatement();
+			dropStatement = tableInfo.getIdTableDropStatement();
+		}
+
+		public CompletionStage<Integer> createTempTable() {
+			failedStatement = createStatement;
+			return session.getReactiveConnection()
+					.executeUnprepared( createStatement )
+					.handle( this::ignoreException );
+		}
+
+		public CompletionStage<Integer> dropTempTable(Integer total) {
+			failedStatement = dropStatement;
+			return session.getReactiveConnection()
+					.execute( dropStatement )
+					.handle( this::ignoreException )
+					.thenApply( zero -> total );
+		}
+
+		@Override
+		public String getFailedStatement() {
+			return failedStatement;
+		}
+	}
+
+	/**
+	 * Db2 uses global temporary tables
+	 */
+	private class Db2TempTableStatementsExecutor implements TempTableStatementsExecutor {
+
+		private final String dropStatement;
+		private final String createStatement;
+		private final String deleteStatement;
+		private final ReactiveQueryExecutor session;
+		private String failedStatement;
+
+		private Db2TempTableStatementsExecutor(IdTableInfoImpl tableInfo, ReactiveQueryExecutor session) {
+			this.session = session;
+			if ( createdGlobalTemporaryTables.add( tableInfo.getQualifiedIdTableName() ) ) {
+				dropStatement = tableInfo.getIdTableDropStatement();
+				createStatement = tableInfo.getIdTableCreationStatement();
+				dropGlobalTemporaryTables.add( tableInfo.getIdTableDropStatement() );
+			}
+			else {
+				// The global temp table should already exist
+				createStatement = null;
+				dropStatement = null;
+			}
+			deleteStatement = getIdTableSupport().getTruncateIdTableCommand() + " " + tableInfo.getQualifiedIdTableName();
+		}
+
+		public CompletionStage<Integer> createTempTable() {
+			if ( createStatement == null ) {
+				return zeroFuture();
+			}
+			return executeOutside( session, dropStatement )
+					.thenCompose( integer -> executeOutside( session, createStatement ) );
+		}
+
+		private CompletionStage<Integer> executeOutside(ReactiveQueryExecutor session, String sql) {
+			failedStatement = sql;
+			return session.getReactiveConnection()
+					.executeOutsideTransaction( sql )
+					.handle( this::ignoreException );
+		}
+
+		public CompletionStage<Integer> dropTempTable(Integer total) {
+			return session.getReactiveConnection()
+					.execute( deleteStatement )
+					.handle( this::ignoreException );
+		}
+
+		@Override
+		public String getFailedStatement() {
+			return failedStatement;
+		}
+	}
+
+	/**
+	 * Handle the statements for the creation and drop of temporary tables. They sometimes need to run
 	 * as query instead of preparedQuery (it depends on the database).
 	 */
-	private abstract class CreateTempTablesHandler extends AbstractTableBasedBulkIdHandler
+	private abstract class TempTableHandler extends AbstractTableBasedBulkIdHandler
 			implements StatementsWithParameters {
 
-		private final String[] createTempTablesStatements;
 		private final Queryable targetedPersister;
 
-		public CreateTempTablesHandler(SessionFactoryImplementor sessionFactory, HqlSqlWalker walker, Queryable targetedPersister) {
+		public TempTableHandler(SessionFactoryImplementor sessionFactory, HqlSqlWalker walker, Queryable targetedPersister) {
 			super( sessionFactory, walker );
 			this.targetedPersister = targetedPersister;
-
-			List<String> createTempStatements = new ArrayList<>();
-			List<ParameterSpecification[]> createTempParameterSpecifications = new ArrayList<>();
-			createTempTable( createTempStatements, createTempParameterSpecifications, getIdTableInfo( targetedPersister ) );
-
-			this.createTempTablesStatements = ArrayHelper.toStringArray( createTempStatements );
 		}
 
 		@Override
@@ -210,18 +296,16 @@ public class ReactiveBulkIdStrategy
 
 		@Override
 		public CompletionStage<Integer> execute(ReactiveQueryExecutor session, QueryParameters queryParameters) {
-			return executeCreateTempTablesStatements( session )
-					.thenCompose( zero -> StatementsWithParameters.super.execute( session, queryParameters ) );
+			TempTableStatementsExecutor statementsExecutor = createStatementsExecutor( session );
+			return statementsExecutor.createTempTable()
+					.thenCompose( zero -> StatementsWithParameters.super.execute( session, queryParameters ) )
+					.thenCompose( statementsExecutor::dropTempTable );
 		}
 
-		private CompletionStage<Integer> executeCreateTempTablesStatements(ReactiveQueryExecutor session) {
-			CreateTempTablesStatementsExecutor createTempTables = new CreateTempTablesStatementsExecutor( session, createTempTablesStatements );
-			return total( 0, createTempTablesStatements.length, createTempTables::execute );
-		}
-
-		@Override
-		public boolean isTransactionalStatement(String statement) {
-			return !db2 || !isSchemaDefinitionStatement( statement );
+		private TempTableStatementsExecutor createStatementsExecutor(ReactiveQueryExecutor session) {
+			return db2
+					? new Db2TempTableStatementsExecutor( getIdTableInfo( targetedPersister ), session )
+					: new LocalTempTableStatementsExecutor( getIdTableInfo( targetedPersister ), session );
 		}
 
 		@Override
@@ -253,7 +337,7 @@ public class ReactiveBulkIdStrategy
 		}
 	}
 
-	private class TableBasedUpdateHandlerImpl extends CreateTempTablesHandler
+	private class TableBasedUpdateHandlerImpl extends TempTableHandler
 			implements MultiTableBulkIdStrategy.UpdateHandler {
 
 		private final String[] statements;
@@ -316,8 +400,6 @@ public class ReactiveBulkIdStrategy
 				}
 			}
 
-			dropTempTable( statements, parameterSpecifications, tableInfo );
-
 			this.statements = ArrayHelper.toStringArray( statements );
 			this.parameterSpecifications = parameterSpecifications.toArray( new ParameterSpecification[0][] );
 		}
@@ -346,7 +428,7 @@ public class ReactiveBulkIdStrategy
 //		}
 	}
 
-	private class TableBasedDeleteHandlerImpl extends CreateTempTablesHandler
+	private class TableBasedDeleteHandlerImpl extends TempTableHandler
 			implements MultiTableBulkIdStrategy.DeleteHandler {
 
 		private final String[] statements;
@@ -414,8 +496,6 @@ public class ReactiveBulkIdStrategy
 //				parameterSpecifications.add( useSessionIdColumn() ? new ParameterSpecification[] { SESSION_ID } : NO_PARAMS );
 			}
 
-			dropTempTable( statements, parameterSpecifications, tableInfo );
-
 			this.statements = ArrayHelper.toStringArray( statements );
 			this.parameterSpecifications = parameterSpecifications.toArray( new ParameterSpecification[0][] );
 		}
@@ -449,44 +529,6 @@ public class ReactiveBulkIdStrategy
 //			String sql = super.generateIdSubselect( persister, collectionPersister, idTableInfo );
 //			return useSessionIdColumn() ? sql + " where " + SESSION_ID_COLUMN_NAME + "=?" : sql;
 //		}
-	}
-
-	private void createTempTable(List<String> statements,
-								 List<ParameterSpecification[]> parameterSpecifications,
-								 IdTableInfoImpl tableInfo) {
-		if (db2) {
-			if ( createdGlobalTemporaryTables.add( tableInfo.getQualifiedIdTableName() ) ) {
-				statements.add( tableInfo.getIdTableDropStatement() );
-				parameterSpecifications.add( NO_PARAMS );
-				statements.add( tableInfo.getIdTableCreationStatement() );
-				parameterSpecifications.add( NO_PARAMS );
-				dropTableStatements.add( tableInfo.getIdTableDropStatement() );
-			}
-		}
-		else {
-			statements.add( tableInfo.getIdTableCreationStatement() );
-			parameterSpecifications.add( NO_PARAMS );
-		}
-	}
-
-	private void dropTempTable(List<String> statements,
-							   List<ParameterSpecification[]> parameterSpecifications,
-							   IdTableInfoImpl tableInfo) {
-//		if ( useSessionIdColumn() ) {
-//			Delete drop = new Delete()
-//					.setTableName( tableInfo.getQualifiedIdTableName() )
-//					.setWhere( SESSION_ID_COLUMN_NAME + "=?" );
-//			statements.add( drop.toStatementString() );
-//			parameterSpecifications.add( new ParameterSpecification[] { SESSION_ID } );
-//		}
-//		else {
-		if (db2) {
-			statements.add( getIdTableSupport().getTruncateIdTableCommand() + " " + tableInfo.getQualifiedIdTableName() );
-		}
-		else {
-			statements.add( tableInfo.getIdTableDropStatement() );
-		}
-		parameterSpecifications.add( NO_PARAMS );
 	}
 
 //	@Override
