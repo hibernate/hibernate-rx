@@ -21,6 +21,8 @@ import org.hibernate.engine.spi.CascadingActions;
 import org.hibernate.engine.spi.EntityEntry;
 import org.hibernate.engine.spi.LoadQueryInfluencers;
 import org.hibernate.engine.spi.SharedSessionContractImplementor;
+import org.hibernate.id.IdentifierGenerator;
+import org.hibernate.id.IdentityGenerator;
 import org.hibernate.jdbc.Expectation;
 import org.hibernate.loader.entity.UniqueEntityLoader;
 import org.hibernate.mapping.PersistentClass;
@@ -125,6 +127,15 @@ public class ReactiveSingleTableEntityPersister extends SingleTableEntityPersist
 	public String generateIdentityInsertString(boolean[] includeProperty) {
 		String sql =  super.generateIdentityInsertString( includeProperty );
 		return parameters().process( sql, includeProperty.length );
+	}
+
+	@Override
+	public IdentifierGenerator getIdentifierGenerator() throws HibernateException {
+		final IdentifierGenerator identifierGenerator = super.getIdentifierGenerator();
+		if ( identifierGenerator instanceof IdentityGenerator ) {
+			return new ReactiveIdentityGenerator();
+		}
+		return identifierGenerator;
 	}
 
 	@Override

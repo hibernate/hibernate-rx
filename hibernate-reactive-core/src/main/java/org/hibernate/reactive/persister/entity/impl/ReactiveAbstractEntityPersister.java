@@ -42,7 +42,6 @@ import org.hibernate.internal.util.collections.ArrayHelper;
 import org.hibernate.jdbc.Expectation;
 import org.hibernate.loader.entity.UniqueEntityLoader;
 import org.hibernate.persister.entity.AbstractEntityPersister;
-import org.hibernate.persister.entity.JoinedSubclassEntityPersister;
 import org.hibernate.persister.entity.Lockable;
 import org.hibernate.persister.entity.MultiLoadOptions;
 import org.hibernate.persister.entity.OuterJoinLoadable;
@@ -74,7 +73,6 @@ import static org.hibernate.persister.entity.AbstractEntityPersister.isValueGene
 import static org.hibernate.pretty.MessageHelper.infoString;
 import static org.hibernate.reactive.adaptor.impl.PreparedStatementAdaptor.bind;
 import static org.hibernate.reactive.id.impl.IdentifierGeneration.castToIdentifierType;
-import static org.hibernate.reactive.persister.entity.impl.InsertAndSelectProcessor.process;
 import static org.hibernate.reactive.util.impl.CompletionStages.completedFuture;
 import static org.hibernate.reactive.util.impl.CompletionStages.logSqlException;
 import static org.hibernate.reactive.util.impl.CompletionStages.loop;
@@ -100,7 +98,7 @@ import static org.hibernate.reactive.util.impl.CompletionStages.voidFuture;
  * @see ReactiveSingleTableEntityPersister
  */
 public interface ReactiveAbstractEntityPersister extends ReactiveEntityPersister, OuterJoinLoadable, Lockable {
-	Logger log = Logger.getLogger( JoinedSubclassEntityPersister.class );
+	Logger log = Logger.getLogger( ReactiveAbstractEntityPersister.class );
 
 	default Parameters parameters() {
 		return Parameters.instance( getFactory().getJdbcServices().getDialect() );
@@ -368,10 +366,7 @@ public interface ReactiveAbstractEntityPersister extends ReactiveEntityPersister
 		// Ignoring it for now because it's always false and we have ways to get the id without
 		// the extra round trip for all supported databases
 //		if ( getFactory().getSessionFactoryOptions().isGetGeneratedKeysEnabled() ) {
-			generatedIdStage = connection.insertAndSelectIdentifier(
-					process( sql, getFactory().getJdbcServices().getDialect(), delegate().getIdentifierColumnNames()[0] ),
-					params
-			);
+			generatedIdStage = connection.insertAndSelectIdentifier( sql, params );
 //		}
 //		else {
 //			//use an extra round trip to fetch the id
