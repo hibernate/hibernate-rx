@@ -35,13 +35,16 @@ public interface ReactiveConnection {
 	}
 
 	CompletionStage<Void> execute(String sql);
-
 	CompletionStage<Void> executeOutsideTransaction(String sql);
+
+	/**
+	 * Run sql as statement (instead of preparedStatement)
+	 */
+	CompletionStage<Void> executeUnprepared(String sql);
 
 	CompletionStage<Integer> update(String sql);
 	CompletionStage<Integer> update(String sql, Object[] paramValues);
-	CompletionStage<Void> update(String sql, Object[] paramValues,
-								 boolean allowBatching, Expectation expectation);
+	CompletionStage<Void> update(String sql, Object[] paramValues, boolean allowBatching, Expectation expectation);
 	CompletionStage<int[]> update(String sql, List<Object[]> paramValues);
 
 	CompletionStage<Result> select(String sql);

@@ -18,11 +18,12 @@ public class DatabaseConfiguration {
 	public static final boolean USE_DOCKER = Boolean.getBoolean("docker");
 
 	public enum DBType {
-		DB2( DB2Database.INSTANCE, 50000, false ),
-		MYSQL( MySQLDatabase.INSTANCE, 3306, false ),
-		MARIA( MariaDatabase.INSTANCE, 3306, false, "mariadb" ),
-		POSTGRESQL( PostgreSQLDatabase.INSTANCE, 5432, true, "POSTGRES", "PG" ),
-		COCKROACHDB( CockroachDBDatabase.INSTANCE, 26257, true, "COCKROACH" );
+		DB2( DB2Database.INSTANCE, 50000 ),
+		MYSQL( MySQLDatabase.INSTANCE, 3306 ),
+		MARIA( MariaDatabase.INSTANCE, 3306, "mariadb" ),
+		POSTGRESQL( PostgreSQLDatabase.INSTANCE, 5432, "POSTGRES", "PG" ),
+		COCKROACHDB( CockroachDBDatabase.INSTANCE, 26257, "COCKROACH" ),
+		SQLSERVER( MSSQLServerDatabase.INSTANCE, 1433, "MSSQL", "MSSQLSERVER" );
 
 		private final TestableDatabase configuration;
 		private final int defaultPort;
@@ -30,14 +31,10 @@ public class DatabaseConfiguration {
 		// A list of alternative names that can be used to select the db
 		private final String[] aliases;
 
-		// True if the database requires '$' style parameters for SQL queries
-		private boolean requiresDollarSyntax;
-
-		DBType(TestableDatabase configuration, int defaultPort, boolean requiresDollarSyntax, String... aliases) {
+		DBType(TestableDatabase configuration, int defaultPort, String... aliases) {
 			this.configuration = configuration;
 			this.defaultPort = defaultPort;
 			this.aliases = aliases;
-			this.requiresDollarSyntax = requiresDollarSyntax;
 		}
 
 		@Override
@@ -68,10 +65,6 @@ public class DatabaseConfiguration {
 
 		public int getDefaultPort() {
 			return defaultPort;
-		}
-
-		public boolean requiresDollarSyntax() {
-			return requiresDollarSyntax;
 		}
 	}
 

@@ -5,6 +5,10 @@
  */
 package org.hibernate.reactive.persister.entity.impl;
 
+import java.io.Serializable;
+import java.sql.PreparedStatement;
+import java.util.concurrent.CompletionStage;
+
 import org.hibernate.HibernateException;
 import org.hibernate.LockMode;
 import org.hibernate.LockOptions;
@@ -15,6 +19,8 @@ import org.hibernate.engine.spi.CascadingActions;
 import org.hibernate.engine.spi.EntityEntry;
 import org.hibernate.engine.spi.LoadQueryInfluencers;
 import org.hibernate.engine.spi.SharedSessionContractImplementor;
+import org.hibernate.id.IdentifierGenerator;
+import org.hibernate.id.IdentityGenerator;
 import org.hibernate.jdbc.Expectation;
 import org.hibernate.loader.entity.UniqueEntityLoader;
 import org.hibernate.mapping.PersistentClass;
@@ -24,10 +30,6 @@ import org.hibernate.reactive.loader.entity.ReactiveUniqueEntityLoader;
 import org.hibernate.reactive.loader.entity.impl.ReactiveBatchingEntityLoaderBuilder;
 import org.hibernate.reactive.loader.entity.impl.ReactiveCascadeEntityLoader;
 import org.hibernate.type.Type;
-
-import java.io.Serializable;
-import java.sql.PreparedStatement;
-import java.util.concurrent.CompletionStage;
 
 /**
  * An {@link ReactiveEntityPersister} backed by {@link JoinedSubclassEntityPersister}
@@ -113,6 +115,15 @@ public class ReactiveJoinedSubclassEntityPersister extends JoinedSubclassEntityP
 	public String generateIdentityInsertString(boolean[] includeProperty) {
 		String sql =  super.generateIdentityInsertString( includeProperty );
 		return parameters().process( sql, includeProperty.length );
+	}
+
+	@Override
+	public IdentifierGenerator getIdentifierGenerator() throws HibernateException {
+		final IdentifierGenerator identifierGenerator = super.getIdentifierGenerator();
+		if ( identifierGenerator instanceof IdentityGenerator ) {
+			return new ReactiveIdentityGenerator();
+		}
+		return identifierGenerator;
 	}
 
 	@Override

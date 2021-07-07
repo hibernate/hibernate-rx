@@ -13,6 +13,7 @@ import org.hibernate.dialect.Dialect;
 import org.hibernate.dialect.MariaDB103Dialect;
 import org.hibernate.dialect.MySQL8Dialect;
 import org.hibernate.dialect.PostgreSQL10Dialect;
+import org.hibernate.dialect.SQLServer2012Dialect;
 import org.hibernate.engine.jdbc.connections.spi.ConnectionProvider;
 import org.hibernate.engine.jdbc.connections.spi.JdbcConnectionAccess;
 import org.hibernate.engine.jdbc.dialect.spi.DatabaseMetaDataDialectResolutionInfoAdapter;
@@ -132,6 +133,9 @@ public class NoJdbcEnvironmentInitiator extends JdbcEnvironmentInitiator {
 		}
 		else if ( url.startsWith("cockroachdb:") ) {
 			return  CockroachDB201Dialect.class;
+		}
+		else if ( url.startsWith("sqlserver:") ) {
+			return  SQLServer2012Dialect.class;
 		}
 		else {
 			return null;

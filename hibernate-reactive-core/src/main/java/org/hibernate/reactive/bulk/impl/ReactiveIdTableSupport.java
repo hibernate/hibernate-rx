@@ -10,6 +10,7 @@ import org.hibernate.dialect.Dialect;
 import org.hibernate.dialect.MariaDB103Dialect;
 import org.hibernate.dialect.MySQL8Dialect;
 import org.hibernate.dialect.PostgreSQL10Dialect;
+import org.hibernate.dialect.SQLServerDialect;
 import org.hibernate.hql.spi.id.IdTableSupportStandardImpl;
 
 /**
@@ -28,7 +29,7 @@ class ReactiveIdTableSupport extends IdTableSupportStandardImpl {
 
     @Override
     public String generateIdTableName(String baseName) {
-        return "ht_" + baseName;
+        return (dialect instanceof SQLServerDialect ?  "#" : "ht_") + baseName;
     }
 
     @Override
@@ -41,6 +42,9 @@ class ReactiveIdTableSupport extends IdTableSupportStandardImpl {
         }
         else if (dialect instanceof DB297Dialect) {
             return "create global temporary table";
+        }
+        else if (dialect instanceof SQLServerDialect) {
+            return "create table";
         }
         else {
             return "create local temporary table";

@@ -88,7 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        db: [ 'MariaDB', 'MySQL', 'PostgreSQL', 'DB2', 'CockroachDB' ]
+        db: [ 'MariaDB', 'MySQL', 'PostgreSQL', 'DB2', 'CockroachDB', 'MSSQLServer' ]
     steps:
     - uses: actions/checkout@v2
     - name: Get year/month for cache key

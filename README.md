@@ -14,8 +14,8 @@ Hibernate Reactive may be used in any plain Java program, but is
 especially targeted toward usage in reactive environments like 
 [Quarkus][] and [Vert.x][].
 
-Currently [PostgreSQL][], [MySQL][], [MariaDB][], [Db2][], and 
-[CockroachDB][] are supported.
+Currently [PostgreSQL][], [MySQL][], [MariaDB][], [Db2][], 
+[CockroachDB][] and [MS SQL Server][MSSQL] are supported.
 
 Learn more at <http://hibernate.org/reactive>.
 
@@ -34,19 +34,20 @@ Hibernate Reactive has been tested with:
 - MariaDB 10
 - Db2 11.5
 - CockroachDB 21.1
+- MS SQL Server 2019
 - [Hibernate ORM][] 5.5.3.Final
 - [Vert.x Reactive PostgreSQL Client](https://vertx.io/docs/vertx-pg-client/java/) 4.1.0
 - [Vert.x Reactive MySQL Client](https://vertx.io/docs/vertx-mysql-client/java/) 4.1.0
 - [Vert.x Reactive Db2 Client](https://vertx.io/docs/vertx-db2-client/java/) 4.1.0
+- [Vert.x Reactive MS SQL Server Client](https://vertx.io/docs/vertx-mssql-client/java/) 4.1.0
 - [Quarkus][Quarkus] via the Hibernate Reactive extension
-
-Support for SQL Server is coming soon.
 
 [PostgreSQL]: https://www.postgresql.org
 [MySQL]: https://www.mysql.com
 [MariaDB]: https://mariadb.com
 [DB2]: https://www.ibm.com/analytics/db2
 [CockroachDB]: https://www.cockroachlabs.com/
+[MSSQL]: https://www.microsoft.com/en-gb/sql-server
 
 ## Documentation
 

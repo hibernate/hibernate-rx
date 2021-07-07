@@ -64,6 +64,10 @@ public class CompletionStages {
 		return ZERO;
 	}
 
+	public static CompletionStage<Integer> zeroFuture(Object ignore) {
+		return zeroFuture();
+	}
+
 	public static CompletionStage<Boolean> trueFuture() {
 		return TRUE;
 	}
@@ -103,6 +107,13 @@ public class CompletionStages {
 			throw (T) x;
 		}
 		return result;
+	}
+
+	/**
+	 * For CompletionStage#handle when we don't care about errors
+	 */
+	public static <U> U ignoreErrors(Void unused, Throwable throwable) {
+		return null;
 	}
 
 	public static void logSqlException(Throwable t, Supplier<String> message, String sql) {

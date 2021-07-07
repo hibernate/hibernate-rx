@@ -85,14 +85,33 @@ public class DefaultSqlClientPoolConfiguration implements SqlClientPoolConfigura
 
     @Override
     public SqlConnectOptions connectOptions(URI uri) {
-
         String scheme = uri.getScheme();
+        String path = uri.getPath();
 
-        String database = uri.getPath().substring( 1 );
+        String database = path.length() > 0
+                ? path.substring( 1 )
+                : "";
+
         if ( scheme.equals("db2") && database.indexOf( ':' ) > 0 ) {
             // DB2 URLs are a bit odd and have the format:
             // jdbc:db2://<HOST>:<PORT>/<DB>:key1=value1;key2=value2;
             database = database.substring( 0, database.indexOf( ':' ) );
+        }
+
+        String host = uri.getHost();
+        int port = uri.getPort();
+        int index = uri.toString().indexOf( ';' );
+        if ( scheme.equals( "sqlserver" ) && index > 0 ) {
+            // SQL Server separates parameters in the url with a semicolon (';')
+            // and the URI class doesn't get the right value for host and port when the url
+            // contains parameters
+            URI uriWithoutParams = URI.create( uri.toString().substring( 0, index ) );
+            host = uriWithoutParams.getHost();
+            port = uriWithoutParams.getPort();
+        }
+
+        if ( port == -1 ) {
+            port = defaultPort( scheme );
         }
 
         //see if the credentials were specified via properties
@@ -120,6 +139,17 @@ public class DefaultSqlClientPoolConfiguration implements SqlClientPoolConfigura
                         params = uri.getPath().substring(queryIndex).split(";");
                     }
                 }
+                else if ( scheme.contains( "sqlserver" ) ) {
+                    // SQL Server separates parameters in the url with a semicolon (';')
+                    // Ex: jdbc:sqlserver://<server>:<port>;<database>=AdventureWorks;user=<user>;password=<password>
+                    String query = uri.getQuery();
+                    String rawQuery = uri.getRawQuery();
+                    String s = uri.toString();
+                    int queryIndex = s.indexOf(';') + 1;
+                    if (queryIndex > 0) {
+                        params = s.substring(queryIndex).split(";");
+                    }
+                }
                 else {
                     final String query = uri.getQuery();
                     if ( query != null ) {
@@ -129,30 +159,27 @@ public class DefaultSqlClientPoolConfiguration implements SqlClientPoolConfigura
                 for (String param : params) {
                     if ( param.startsWith("user=") ) {
                         username = param.substring(5);
-                    }
-                    if ( param.startsWith("pass=") ) {
+                    } else if ( param.startsWith("pass=") ) {
                         password = param.substring(5);
-                    }
-                    if ( param.startsWith("password=") ) {
+                    } else if ( param.startsWith("password=") ) {
                         password = param.substring(9);
+                    } else if ( param.startsWith("database=") ) {
+                        database = param.substring(9);
                     }
                 }
             }
         }
-
-        int port = uri.getPort() == -1
-                ? defaultPort( scheme )
-                : uri.getPort();
 
         if ( username == null ) {
             throw new HibernateError( "database username not specified (set the property 'javax.persistence.jdbc.user', or include it as a parameter in the connection URL)" );
         }
 
         SqlConnectOptions connectOptions = new SqlConnectOptions()
-                .setHost( uri.getHost() )
+                .setHost( host )
                 .setPort( port )
                 .setDatabase( database )
                 .setUser( username );
+
         if (password != null) {
             connectOptions.setPassword( password );
         }
@@ -192,6 +219,8 @@ public class DefaultSqlClientPoolConfiguration implements SqlClientPoolConfigura
                 return 50000;
             case "cockroachdb":
                 return 26257;
+            case "sqlserver":
+                return 1433;
             default:
                 throw new IllegalArgumentException( "Unknown default port for scheme: " + scheme );
         }

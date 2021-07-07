@@ -5,7 +5,14 @@
  */
 package org.hibernate.reactive.bulk;
 
+import java.util.concurrent.CompletionStage;
+
+import org.hibernate.engine.spi.QueryParameters;
 import org.hibernate.param.ParameterSpecification;
+import org.hibernate.reactive.adaptor.impl.QueryParametersAdaptor;
+import org.hibernate.reactive.session.ReactiveQueryExecutor;
+
+import static org.hibernate.reactive.util.impl.CompletionStages.total;
 
 /**
  * A list of SQL statements to be executed as a single logical unit.
@@ -26,22 +33,16 @@ public interface StatementsWithParameters {
     ParameterSpecification[][] getParameterSpecifications();
 
     /**
-     * Is the given statement executed inside the current transaction?
-     *
-     * @return true by default
+     * Execute the statements using the query parameters
      */
-    default boolean isTransactionalStatement(String statement) {
-        return true;
-    }
-
-    /**
-     * Should the result of this statement contribute to the running
-     * updated row count?
-     *
-     * @return false for DDL statements by default
-     */
-    default boolean isSchemaDefinitionStatement(String statement) {
-        return statement.startsWith("create ")
-            || statement.startsWith("drop ");
+    default CompletionStage<Integer> execute(ReactiveQueryExecutor session, QueryParameters queryParameters) {
+        return total( 0, getSqlStatements().length, i -> {
+            final Object[] arguments = QueryParametersAdaptor.arguments(
+                    queryParameters,
+                    getParameterSpecifications()[i],
+                    session.getSharedContract()
+            );
+            return session.getReactiveConnection().update( getSqlStatements()[i], arguments );
+        } );
     }
 }

@@ -78,7 +78,7 @@ jobs:
     strategy:
       matrix:
         vertx-version: [ '[4.1,4.2)' ]
-        db: [ 'MariaDB', 'MySQL', 'PostgreSQL', 'DB2', 'CockroachDB' ]
+        db: [ 'MariaDB', 'MySQL', 'PostgreSQL', 'DB2', 'CockroachDB', 'MSSQLServer' ]
     steps:
       - uses: actions/checkout@v2
       - name: Set up JDK 1.8

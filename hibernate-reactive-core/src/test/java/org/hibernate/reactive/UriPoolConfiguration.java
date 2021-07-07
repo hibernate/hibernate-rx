@@ -6,6 +6,7 @@
 package org.hibernate.reactive;
 
 import io.vertx.db2client.DB2ConnectOptions;
+import io.vertx.mssqlclient.MSSQLConnectOptions;
 import io.vertx.mysqlclient.MySQLConnectOptions;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.PoolOptions;
@@ -13,6 +14,8 @@ import io.vertx.sqlclient.SqlConnectOptions;
 import org.hibernate.reactive.pool.impl.SqlClientPoolConfiguration;
 
 import java.net.URI;
+
+import static org.hibernate.reactive.containers.DatabaseConfiguration.dbType;
 
 public class UriPoolConfiguration implements SqlClientPoolConfiguration {
     @Override
@@ -32,8 +35,9 @@ public class UriPoolConfiguration implements SqlClientPoolConfiguration {
                 return MySQLConnectOptions.fromUri( uri.toString() );
             case "db2":
                 return DB2ConnectOptions.fromUri( uri.toString() );
-            default:
-                throw new IllegalArgumentException();
+            case "sqlserver":
+                return MSSQLConnectOptions.fromUri( uri.toString() );
+            default: throw new IllegalArgumentException( "Database not recognized: " + dbType() );
         }
     }
 }
