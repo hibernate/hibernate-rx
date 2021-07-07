@@ -15,23 +15,16 @@ import org.hibernate.cfg.AvailableSettings;
 import org.hibernate.cfg.Configuration;
 import org.hibernate.reactive.provider.Settings;
 import org.hibernate.reactive.stage.Stage;
-import org.hibernate.reactive.testing.DatabaseSelectionRule;
 
-import org.junit.Rule;
 import org.junit.Test;
 
 import io.vertx.ext.unit.TestContext;
 
-import static org.hibernate.reactive.containers.DatabaseConfiguration.DBType.DB2;
-import static org.hibernate.reactive.testing.DatabaseSelectionRule.skipTestsFor;
 
 /**
  * Test importing a SQL script which is using the multi-line format
  */
 public class MultilineImportsTest extends BaseReactiveTest {
-
-	@Rule // Db2 doesn't like something in the queries we run during the import
-	public DatabaseSelectionRule  rule = skipTestsFor( DB2 );
 
 	private static CompletionStage<List<Object>> runQuery(Stage.Session s) {
 		return s.createQuery( "from Hero h where h.name = :name" )
@@ -79,7 +72,6 @@ public class MultilineImportsTest extends BaseReactiveTest {
 
 		public String picture;
 
-		@Column(columnDefinition = "TEXT")
 		public String powers;
 
 	}
