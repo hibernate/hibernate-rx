@@ -131,6 +131,7 @@ jobs:
           - { name: "15", java-version: 15, release_type: "ga" }
           - { name: "16", java-version: 16, release_type: "ga" }
           - { name: "17-ea", java-version: 17, release_type: "ea" }
+          - { name: "18-ea", java-version: 18, release_type: "ea" }
     steps:
     - uses: actions/checkout@v2
     - name: Get year/month for cache key
@@ -160,6 +161,9 @@ jobs:
       id: install-mainjdk
       with:
         java-version: 8
+    - name: Display exact version of JDK ${{ matrix.java.name }}
+      run: |
+        ${{ steps.install-testjdk.outputs.path }}/bin/java -version
     - name: Build and Test with Java ${{ matrix.java.name }}
       run: |
         ./gradlew build -PshowStandardOutput -Pdocker -Ptest.jdk.version=${{ matrix.java.java-version }} \
